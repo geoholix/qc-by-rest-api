@@ -26,7 +26,7 @@ pip install -r requirements.txt
 
 ```bash
 python qc_arcgis_service.py \
-  "https://petapajak.jakarta.go.id/arcgis/rest/services/analytics/PETA_BIDANG_PBB_P2_DKI_JAKARTASATU/MapServer/0" \
+  "https://yourdomain.com/arcgis/rest/services/servicename/MapServer/0" \
   --out-dir reports/pbb_qc \
   --required-field NOP \
   --required-field KECAMATAN \
