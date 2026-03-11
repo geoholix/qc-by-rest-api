@@ -7,15 +7,16 @@ Refined project structure:
 
 ## Features
 
-1. User inputs ArcGIS REST layer URL, clicks **Scan**.
-2. Backend scans all data and checks:
+1. User inputs ArcGIS REST layer URL and clicks **Add Layer** to preview it on map.
+2. After layer loads, user clicks **Run QC Scan**.
+3. Backend scans all data and checks:
    - invalid geometry
    - topology overlap
    - overshoot/dangle
    - missing/empty required attributes
-3. Dashboard shows summary cards (`2 topology_overlap`, `3 overshoot`, etc).
-4. User can export each error category as **GeoJSON**.
-5. App also generates **HTML report** (`qc_report.html`) listing all detected errors.
+4. Dashboard shows summary cards (`2 topology_overlap`, `3 overshoot`, etc).
+5. User can export each error category as **GeoJSON**.
+6. App also generates **HTML report** (`qc_report.html`) listing all detected errors.
 
 ---
 
