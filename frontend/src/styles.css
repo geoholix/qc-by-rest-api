@@ -1,0 +1,7 @@
+body { margin: 0; font-family: Arial, sans-serif; }
+.app { padding: 16px; }
+.controls { display: grid; gap: 8px; max-width: 800px; }
+.controls input, .controls button { padding: 8px; }
+.cards { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+.card { border: 1px solid #ddd; border-radius: 8px; padding: 10px; min-width: 140px; }
+.map { height: 450px; border: 1px solid #ddd; margin-top: 12px; }
