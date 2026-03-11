@@ -1,0 +1,6 @@
+geopandas>=0.14
+pandas>=2.0
+requests>=2.31
+shapely>=2.0
+fiona>=1.9
+pyproj>=3.6
