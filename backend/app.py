@@ -6,7 +6,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 
-from qc_engine import QCConfig, QCServiceError, run_qc
+from qc_engine import QCConfig, run_qc
 
 app = Flask(__name__)
 CORS(app)
@@ -23,17 +23,10 @@ def health():
 
 @app.post("/api/scan")
 def scan():
-    payload = request.get_json(silent=True) or {}
-    layer_url = str(payload.get("layer_url") or "").strip()
+    payload = request.get_json(force=True)
+    layer_url = (payload.get("layer_url") or "").strip()
     required_fields = payload.get("required_fields") or []
-
-    if not isinstance(required_fields, list):
-        return jsonify({"error": "required_fields must be an array of field names"}), 400
-
-    try:
-        tolerance = float(payload.get("line_endpoint_tolerance", 0.0))
-    except (TypeError, ValueError):
-        return jsonify({"error": "line_endpoint_tolerance must be numeric"}), 400
+    tolerance = float(payload.get("line_endpoint_tolerance", 0.0))
 
     if not layer_url:
         return jsonify({"error": "layer_url is required"}), 400
@@ -41,23 +34,20 @@ def scan():
     run_id = str(int(time.time() * 1000))
     out_dir = EXPORT_ROOT / run_id
 
-    try:
-        summary, file_refs = run_qc(
-            QCConfig(
-                layer_url=layer_url,
-                out_dir=out_dir,
-                required_fields=[str(v) for v in required_fields if str(v).strip()],
-                line_endpoint_tolerance=tolerance,
-            )
+    summary, file_refs = run_qc(
+        QCConfig(
+            layer_url=layer_url,
+            out_dir=out_dir,
+            required_fields=required_fields,
+            line_endpoint_tolerance=tolerance,
         )
-    except QCServiceError as exc:
-        return jsonify({"error": str(exc)}), 422
-    except Exception as exc:
-        return jsonify({"error": f"Unexpected scan failure: {exc}"}), 500
+    )
 
     RUNS[run_id] = {"out_dir": str(out_dir), "summary": summary}
 
-    downloads = {name: f"/api/export/{run_id}/{name}" for name in file_refs.keys()}
+    downloads = {
+        name: f"/api/export/{run_id}/{name}" for name in file_refs.keys()
+    }
 
     return jsonify({"run_id": run_id, "summary": summary, "downloads": downloads})
 

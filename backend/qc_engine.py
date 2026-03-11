@@ -4,16 +4,11 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List, Tuple
 
 import geopandas as gpd
-import requests
 from arcgis.features import FeatureLayer
-from shapely.geometry import LineString, Point, shape
-
-
-class QCServiceError(RuntimeError):
-    """Raised when layer metadata or features cannot be read safely."""
+from shapely.geometry import LineString, Point
 
 
 @dataclass
@@ -22,91 +17,29 @@ class QCConfig:
     out_dir: Path
     required_fields: List[str]
     line_endpoint_tolerance: float = 0.0
-    batch_size: int = 1000
-    timeout_seconds: int = 90
-
-
-def _chunked(values: List[int], size: int) -> Iterable[List[int]]:
-    for i in range(0, len(values), size):
-        yield values[i : i + size]
 
 
 class ArcGISQCScanner:
-    """Layer reader with ArcGIS Python API first, REST fallback second."""
-
-    def __init__(self, layer_url: str, timeout_seconds: int = 90):
-        self.layer_url = layer_url.rstrip("/")
-        self.timeout_seconds = timeout_seconds
-        self.layer = FeatureLayer(self.layer_url)
-        self.session = requests.Session()
-
-    def _rest_get(self, endpoint: str, params: Dict) -> Dict:
-        response = self.session.get(endpoint, params=params, timeout=self.timeout_seconds)
-        response.raise_for_status()
-        payload = response.json()
-        if "error" in payload:
-            message = payload["error"].get("message", "ArcGIS REST error")
-            details = payload["error"].get("details", [])
-            raise QCServiceError(f"{message}. {' | '.join(details)}")
-        return payload
+    def __init__(self, layer_url: str):
+        self.layer = FeatureLayer(layer_url)
 
     def metadata(self) -> Dict:
-        try:
-            return dict(self.layer.properties)
-        except Exception:
-            return self._rest_get(self.layer_url, {"f": "json"})
+        return dict(self.layer.properties)
 
-    def _load_via_arcgis_api(self) -> gpd.GeoDataFrame:
+    def load_gdf(self) -> gpd.GeoDataFrame:
         fs = self.layer.query(where="1=1", out_fields="*", return_geometry=True)
         if not fs or len(fs.features) == 0:
             return gpd.GeoDataFrame(columns=["_oid", "geometry"], geometry="geometry", crs="EPSG:4326")
 
         sdf = fs.sdf
         if "SHAPE" not in sdf.columns:
-            raise QCServiceError("Feature layer does not contain SHAPE geometry column.")
+            raise RuntimeError("Layer does not contain SHAPE geometry column.")
 
-        return gpd.GeoDataFrame(sdf.drop(columns=["SHAPE"]).copy(), geometry=sdf["SHAPE"], crs="EPSG:4326")
-
-    def _load_via_rest(self, batch_size: int) -> gpd.GeoDataFrame:
-        ids_payload = self._rest_get(
-            f"{self.layer_url}/query",
-            {"f": "json", "where": "1=1", "returnIdsOnly": "true"},
-        )
-        object_ids = ids_payload.get("objectIds") or []
-        if not object_ids:
-            return gpd.GeoDataFrame(columns=["_oid", "geometry"], geometry="geometry", crs="EPSG:4326")
-
-        records: List[Dict] = []
-        for chunk in _chunked(object_ids, batch_size):
-            payload = self._rest_get(
-                f"{self.layer_url}/query",
-                {
-                    "f": "geojson",
-                    "objectIds": ",".join(str(v) for v in chunk),
-                    "outFields": "*",
-                    "outSR": "4326",
-                },
-            )
-            for feat in payload.get("features", []):
-                row = dict(feat.get("properties") or {})
-                geom = feat.get("geometry")
-                row["geometry"] = shape(geom) if geom else None
-                records.append(row)
-
-        return gpd.GeoDataFrame(records, geometry="geometry", crs="EPSG:4326")
-
-    def load_gdf(self, batch_size: int) -> gpd.GeoDataFrame:
-        # ArcGIS API may fail on some enterprise auth handshakes (e.g. token key missing).
-        # Fallback to plain REST request path to keep scan working for public services.
-        try:
-            gdf = self._load_via_arcgis_api()
-        except Exception:
-            gdf = self._load_via_rest(batch_size=batch_size)
-
+        gdf = gpd.GeoDataFrame(sdf.drop(columns=["SHAPE"]).copy(), geometry=sdf["SHAPE"], crs="EPSG:4326")
         oid_col = next((c for c in ["OBJECTID", "objectid", "FID", "fid"] if c in gdf.columns), None)
         if oid_col:
             gdf = gdf.rename(columns={oid_col: "_oid"})
-        elif "_oid" not in gdf.columns:
+        else:
             gdf["_oid"] = range(1, len(gdf) + 1)
         return gdf
 
@@ -147,15 +80,13 @@ def detect_polygon_overlaps(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
                 continue
             inter = geom.intersection(other)
             if not inter.is_empty and inter.area > 0:
-                hits.append(
-                    {
-                        "_oid": polygons.iloc[i]["_oid"],
-                        "_oid_other": polygons.iloc[j]["_oid"],
-                        "error_type": "topology_overlap",
-                        "error_detail": "polygon overlap area > 0",
-                        "geometry": inter,
-                    }
-                )
+                hits.append({
+                    "_oid": polygons.iloc[i]["_oid"],
+                    "_oid_other": polygons.iloc[j]["_oid"],
+                    "error_type": "topology_overlap",
+                    "error_detail": "polygon overlap area > 0",
+                    "geometry": inter,
+                })
     return gpd.GeoDataFrame(hits, geometry="geometry", crs=gdf.crs)
 
 
@@ -194,14 +125,12 @@ def detect_overshoots(gdf: gpd.GeoDataFrame, tolerance: float) -> gpd.GeoDataFra
                 connected = True
                 break
         if not connected:
-            issues.append(
-                {
-                    "_oid": ep["_oid"],
-                    "error_type": "overshoot_or_dangle",
-                    "error_detail": f"endpoint has no connection within tolerance={tolerance}",
-                    "geometry": ep["geometry"],
-                }
-            )
+            issues.append({
+                "_oid": ep["_oid"],
+                "error_type": "overshoot_or_dangle",
+                "error_detail": f"endpoint has no connection within tolerance={tolerance}",
+                "geometry": ep["geometry"],
+            })
     return gpd.GeoDataFrame(issues, geometry="geometry", crs=gdf.crs)
 
 
@@ -210,14 +139,12 @@ def detect_attribute_errors(gdf: gpd.GeoDataFrame, required_fields: List[str]) -
     for field in required_fields:
         if field not in gdf.columns:
             for rec in gdf.itertuples():
-                rows.append(
-                    {
-                        "_oid": rec._oid,
-                        "error_type": "attribute_missing_field",
-                        "error_detail": f"required field '{field}' not present",
-                        "geometry": rec.geometry,
-                    }
-                )
+                rows.append({
+                    "_oid": rec._oid,
+                    "error_type": "attribute_missing_field",
+                    "error_detail": f"required field '{field}' not present",
+                    "geometry": rec.geometry,
+                })
             continue
 
         for rec in gdf.itertuples():
@@ -228,14 +155,12 @@ def detect_attribute_errors(gdf: gpd.GeoDataFrame, required_fields: List[str]) -
             if isinstance(val, float):
                 empty = empty or math.isnan(val)
             if empty:
-                rows.append(
-                    {
-                        "_oid": rec._oid,
-                        "error_type": "attribute_null_or_empty",
-                        "error_detail": f"required field '{field}' is empty",
-                        "geometry": rec.geometry,
-                    }
-                )
+                rows.append({
+                    "_oid": rec._oid,
+                    "error_type": "attribute_null_or_empty",
+                    "error_detail": f"required field '{field}' is empty",
+                    "geometry": rec.geometry,
+                })
     return gpd.GeoDataFrame(rows, geometry="geometry", crs=gdf.crs)
 
 
@@ -270,10 +195,10 @@ def write_report_html(out_dir: Path, layer_url: str, summary: Dict[str, int], de
 
 
 def run_qc(config: QCConfig) -> Tuple[Dict[str, int], Dict[str, str]]:
-    scanner = ArcGISQCScanner(config.layer_url, timeout_seconds=config.timeout_seconds)
-    gdf = scanner.load_gdf(batch_size=config.batch_size)
+    scanner = ArcGISQCScanner(config.layer_url)
+    gdf = scanner.load_gdf()
     if gdf.empty:
-        raise QCServiceError("Layer has no records or cannot be queried.")
+        raise RuntimeError("Layer has no records.")
 
     required_fields = list(dict.fromkeys(config.required_fields + infer_required_fields(scanner.metadata())))
 
