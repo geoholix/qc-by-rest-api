@@ -60,7 +60,7 @@ Open Vite URL (usually `http://localhost:5173`).
 
 ## Example layer URL
 
-`https://petapajak.jakarta.go.id/arcgis/rest/services/analytics/PETA_BIDANG_PBB_P2_DKI_JAKARTASATU/MapServer/0`
+`https://yourdomain.com/arcgis/rest/services/servicename/MapServer/0`
 # ArcGIS REST Spatial QC Script
 
 This repository provides a Python CLI script to run **spatial and attribute quality control (QC)** directly from an ArcGIS Enterprise REST layer URL.
