@@ -1,0 +1,63 @@
+# Spatial QC App (Backend + Frontend)
+
+Refined project structure:
+
+- `backend/` → Python API + QC engine (ArcGIS Python API)
+- `frontend/` → React dashboard + ArcGIS JavaScript API map
+
+## Features
+
+1. User inputs ArcGIS REST layer URL, clicks **Scan**.
+2. Backend scans all data and checks:
+   - invalid geometry
+   - topology overlap
+   - overshoot/dangle
+   - missing/empty required attributes
+3. Dashboard shows summary cards (`2 topology_overlap`, `3 overshoot`, etc).
+4. User can export each error category as **GeoJSON**.
+5. App also generates **HTML report** (`qc_report.html`) listing all detected errors.
+
+---
+
+## Backend (ArcGIS Python API)
+
+### Run backend
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python app.py
+```
+
+API endpoints:
+- `POST /api/scan`
+- `GET /api/export/<run_id>/<name>`
+
+`name` can be:
+- `invalid_geometry`
+- `topology_overlap`
+- `overshoot`
+- `attribute_error`
+- `html_report`
+
+---
+
+## Frontend (React + ArcGIS JavaScript API)
+
+### Run frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open Vite URL (usually `http://localhost:5173`).
+
+> Frontend expects backend at `http://localhost:8000`.
+
+---
+
+## Example layer URL
+
+`https://petapajak.jakarta.go.id/arcgis/rest/services/analytics/PETA_BIDANG_PBB_P2_DKI_JAKARTASATU/MapServer/0`
